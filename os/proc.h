@@ -5,6 +5,10 @@
 
 #define NPROC (16)
 
+#define MAX_SYSCALL_NUM 500  // Safe upper limit covering ID 410 
+// since highest syscall is 410 from syscall_ids.h
+// redefined here from stddef.h
+
 // Saved registers for kernel context switches.
 struct context {
 	uint64 ra;
@@ -38,11 +42,28 @@ struct proc {
 	/*
 	* LAB1: you may need to add some new fields here
 	*/
+	// PLaced here to have a place to remember stats for every process
+    unsigned int syscall_times[MAX_SYSCALL_NUM]; // To count the calls
+	// So when the processes switch, the variables stay with the processes
+    uint64 start_time;
+	// when the process started
 };
 
 /*
 * LAB1: you may need to define struct for TaskInfo here
 */
+typedef int TaskStatus;
+
+struct TaskInfo {
+    //Status for if the task is running, sleeping, or just ready to run
+    TaskStatus status;
+	// array of set of counters
+	// Each index corresponds to a system call ID number
+	// Index value is number of times it has been called
+    unsigned int syscall_times[MAX_SYSCALL_NUM];
+	// total task run time (ms)
+    int time;
+};
 
 struct proc *curr_proc();
 void exit(int);

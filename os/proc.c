@@ -2,6 +2,7 @@
 #include "defs.h"
 #include "loader.h"
 #include "trap.h"
+#include "timer.h"
 
 struct proc pool[NPROC];
 char kstack[NPROC][PAGE_SIZE];
@@ -22,7 +23,8 @@ struct proc *curr_proc()
 	return current_proc;
 }
 
-// initialize the proc table at boot time.
+//initialize the proc table at boot time.
+// When the OS sets up, it sets up processes and process table
 void proc_init(void)
 {
 	struct proc *p;
@@ -34,6 +36,8 @@ void proc_init(void)
 		/*
 		* LAB1: you may need to initialize your new fields of proc here
 		*/
+		// Added into found block below instead
+		// because we don't want to initialize unused processes
 	}
 	idle.kstack = (uint64)boot_stack_top;
 	idle.pid = 0;
@@ -59,11 +63,20 @@ struct proc *allocproc(void)
 	}
 	return 0;
 
+	// Runs every time a process is created
 found:
 	p->pid = allocpid();
 	p->state = USED;
 	memset(&p->context, 0, sizeof(p->context));
 	memset(p->trapframe, 0, PAGE_SIZE);
+	// added initialization for new fields.
+	// placing this logic here, we're ensuring that 
+	// every task gets a clean slate by zeroing out
+	for (int i = 0; i < MAX_SYSCALL_NUM; i++) {
+        p->syscall_times[i] = 0;
+    }
+    
+    p->start_time = 0;
 	memset((void *)p->kstack, 0, PAGE_SIZE);
 	p->context.ra = (uint64)usertrapret;
 	p->context.sp = p->kstack + PAGE_SIZE;
@@ -84,6 +97,12 @@ void scheduler(void)
 				/*
 				* LAB1: you may need to init proc start time here
 				*/
+				// Round robin scheduling
+				if (p->start_time == 0) {
+					// catches how many cycles have passed in the current process
+                p->start_time = get_cycle();
+            	}
+				//switches the process to running and then context switches to the process
 				p->state = RUNNING;
 				current_proc = p;
 				swtch(&idle.context, &p->context);
