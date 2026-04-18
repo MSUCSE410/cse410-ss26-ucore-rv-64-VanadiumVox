@@ -100,15 +100,18 @@ uint64 sys_spawn(uint64 va)
     struct proc *p = curr_proc();
     char name[200];
     
-    // Grab the target program's name from user space
+	////////////////////////////////////////////////////////
+    // Grab the target program's name from the virtual memory, into the 
+	// kernel's real memory. 
     copyinstr(p->pagetable, name, va, 200);
     debugf("sys_spawn %s\n", name);
 
-    // Call our new custom spawn logic
+    // call our new custom spawn logic
     return spawn(name);
 }
 
 uint64 sys_set_priority(long long prio){
+	/////////////////////////////////////////////////////////////
     // Priority must be at least 2 according to the slides
     if (prio < 2) {
         return -1;
@@ -211,6 +214,10 @@ void syscall()
 			   trapframe->a3, trapframe->a4, trapframe->a5 };
 	tracef("syscall %d args = [%x, %x, %x, %x, %x, %x]", id, args[0],
 	       args[1], args[2], args[3], args[4], args[5]);
+	///////////////////////////////////////////////////////////////
+	// This is basically the universal interceptor. Before the kernel can grant any 
+	// syscall, we log the syscall ID, so that we can track how many times each 
+	// syscall is called by each process.
 	if (id >= 0 && id < MAX_SYSCALL_NUM) {
         curr_proc()->syscall_times[id]++;
     }

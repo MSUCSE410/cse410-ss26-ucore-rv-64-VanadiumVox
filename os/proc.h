@@ -39,6 +39,8 @@ struct TaskInfo {
     int time;
 };
 #define BIG_STRIDE 0x7FFFFFFF // Our massively large constant
+// Used as the numerator in stride scheduling to calculate step size
+////////////////////////////////////////////////////////
 
 // Per-process state
 struct proc {
@@ -55,10 +57,10 @@ struct proc {
 	struct file *files[FD_BUFFER_SIZE];
     unsigned int syscall_times[MAX_SYSCALL_NUM];
     uint64 start_time;
-	// Phase 2: Stride Scheduling Variables
-    long long priority;
-    long long stride;
-    long long pass;
+	/////////////////////////////////////////////////////
+    long long priority; // determines importance 
+    long long stride; // how much CPU time the process has taken
+    long long pass; // the calculated step size
 };
 
 int cpuid();

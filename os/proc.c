@@ -86,10 +86,10 @@ found:
     for (int i = 0; i < MAX_SYSCALL_NUM; i++) {
         p->syscall_times[i] = 0;
     }
-	// Phase 2: Initialize stride variables
-    p->priority = 16;
-    p->stride = 0;
-    p->pass = BIG_STRIDE / p->priority;
+	//////////////////////////////////////////////////
+    p->priority = 16; // we must initialize these stride variables
+    p->stride = 0; // so a new program doesn't inherit garbage data
+    p->pass = BIG_STRIDE / p->priority; // priority 16 gives us an equal starting pos
 	p->parent = NULL;
 	p->exit_code = 0;
 	p->pagetable = uvmcreate((uint64)p->trapframe);
@@ -111,27 +111,33 @@ void scheduler(void)
     struct proc *p;
     for (;;) {
         struct proc *next_proc = 0; // Will hold the process with the lowest stride
+///////////////////////////////////////////////////////////////////
+// Replaced the old logic with the stride algorithm 
+// we're scanning every runnable process in the pool to find the one with the lowest stride, and then we run that one.
 
-        // 1. Scan the entire pool to find the RUNNABLE process with the absolute lowest stride
+        // 1. Scan the entire pool to find the runnable process with the absolute lowest stride
         for (p = pool; p < &pool[NPROC]; p++) {
             if (p->state == RUNNABLE) {
-                // If this is the first one we found, OR if its stride is lower than our current lowest
+                // If this is the first one we found, or if its stride is lower than our current lowest
                 if (next_proc == 0 || p->stride < next_proc->stride) {
                     next_proc = p;
                 }
             }
         }
 
-        // 2. If we actually found a process to run, schedule it!
+        // 2. If we actually found a process to run, schedule it
         if (next_proc != 0) {
             p = next_proc; // Hand it off to 'p' so the context switch code below works
 
-            // [Project 1] Start the clock when the process hits the CPU for the first time
+            // Project 1 Start the clock when the process hits the CPU for the first time
             if (p->start_time == 0) {
                 p->start_time = get_cycle();
             }
 
-            // [Project 3] The Stride Formula: Add the process's pass value to its stride so it goes to the back of the line
+			//////////////////////////////////////////////////////////////////
+            // Once we select, we add it's pass value to its stride.
+			// high-priorities have smaller pass values, so it scales slower
+			// which allows them to be picked more frequently 
             p->stride += p->pass;
 
             // Hand over the CPU
