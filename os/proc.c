@@ -4,6 +4,7 @@
 #include "trap.h"
 #include "vm.h"
 #include "queue.h"
+#include "timer.h"
 
 struct proc pool[NPROC];
 __attribute__((aligned(16))) char kstack[NPROC][PAGE_SIZE];
@@ -81,6 +82,14 @@ found:
 	p->state = USED;
 	p->ustack = 0;
 	p->max_page = 0;
+    p->start_time = 0;
+    for (int i = 0; i < MAX_SYSCALL_NUM; i++) {
+        p->syscall_times[i] = 0;
+    }
+	// Phase 2: Initialize stride variables
+    p->priority = 16;
+    p->stride = 0;
+    p->pass = BIG_STRIDE / p->priority;
 	p->parent = NULL;
 	p->exit_code = 0;
 	p->pagetable = uvmcreate((uint64)p->trapframe);
@@ -97,32 +106,40 @@ found:
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
-void scheduler()
+void scheduler(void)
 {
-	struct proc *p;
-	for (;;) {
-		/*int has_proc = 0;
-		for (p = pool; p < &pool[NPROC]; p++) {
-			if (p->state == RUNNABLE) {
-				has_proc = 1;
-				tracef("swtich to proc %d", p - pool);
-				p->state = RUNNING;
-				current_proc = p;
-				swtch(&idle.context, &p->context);
-			}
-		}
-		if(has_proc == 0) {
-			panic("all app are over!\n");
-		}*/
-		p = fetch_task();
-		if (p == NULL) {
-			panic("all app are over!\n");
-		}
-		tracef("swtich to proc %d", p - pool);
-		p->state = RUNNING;
-		current_proc = p;
-		swtch(&idle.context, &p->context);
-	}
+    struct proc *p;
+    for (;;) {
+        struct proc *next_proc = 0; // Will hold the process with the lowest stride
+
+        // 1. Scan the entire pool to find the RUNNABLE process with the absolute lowest stride
+        for (p = pool; p < &pool[NPROC]; p++) {
+            if (p->state == RUNNABLE) {
+                // If this is the first one we found, OR if its stride is lower than our current lowest
+                if (next_proc == 0 || p->stride < next_proc->stride) {
+                    next_proc = p;
+                }
+            }
+        }
+
+        // 2. If we actually found a process to run, schedule it!
+        if (next_proc != 0) {
+            p = next_proc; // Hand it off to 'p' so the context switch code below works
+
+            // [Project 1] Start the clock when the process hits the CPU for the first time
+            if (p->start_time == 0) {
+                p->start_time = get_cycle();
+            }
+
+            // [Project 3] The Stride Formula: Add the process's pass value to its stride so it goes to the back of the line
+            p->stride += p->pass;
+
+            // Hand over the CPU
+            p->state = RUNNING;
+            current_proc = p;
+            swtch(&idle.context, &p->context);
+        }
+    }
 }
 
 // Switch to scheduler.  Must hold only p->lock
@@ -250,4 +267,40 @@ void exit(int code)
 		}
 	}
 	sched();
+}
+
+// TASK 1: Process Creation (spawn)
+int spawn(char *name) {
+    // 1. Clone the parent so the child inherits open files (like the console!)
+    int pid = fork();
+    if (pid < 0) return -1;
+    
+    // 2. Find our newly minted child in the OS process pool
+    struct proc *child = 0;
+    for(struct proc *p = pool; p < &pool[NPROC]; p++) {
+        if(p->pid == pid) { 
+            child = p; 
+            break; 
+        }
+    }
+    
+    if (child == 0) return -1;
+    
+    // 3. The Swap Hack: Trick the OS into targeting the child
+    struct proc *original_proc = current_proc;
+    current_proc = child;
+    
+    // 4. Exec wipes the child's cloned memory and loads the new program
+    int ret = exec(name); 
+    
+    // 5. Swap back to the parent immediately
+    current_proc = original_proc; 
+    
+    // 6. Cleanup if the program file didn't exist
+    if (ret < 0) {
+        freeproc(child);
+        return -1;
+    }
+    
+    return pid;
 }
