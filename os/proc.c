@@ -4,6 +4,7 @@
 #include "trap.h"
 #include "vm.h"
 #include "queue.h"
+#include "timer.h"
 
 struct proc pool[NPROC];
 __attribute__((aligned(16))) char kstack[NPROC][PAGE_SIZE];
@@ -87,6 +88,13 @@ found:
 	p->state = USED;
 	p->ustack = 0;
 	p->max_page = 0;
+	p->start_time = 0;
+    for (int i = 0; i < MAX_SYSCALL_NUM; i++) {
+        p->syscall_times[i] = 0;
+    }
+    p->priority = 16;
+    p->stride = 0;
+    p->pass = BIG_STRIDE / p->priority;
 	p->parent = NULL;
 	p->exit_code = 0;
 	p->pagetable = uvmcreate((uint64)p->trapframe);
@@ -115,32 +123,30 @@ int init_stdio(struct proc *p)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
-void scheduler()
+void scheduler(void)
 {
-	struct proc *p;
-	for (;;) {
-		/*int has_proc = 0;
-		for (p = pool; p < &pool[NPROC]; p++) {
-			if (p->state == RUNNABLE) {
-				has_proc = 1;
-				tracef("swtich to proc %d", p - pool);
-				p->state = RUNNING;
-				current_proc = p;
-				swtch(&idle.context, &p->context);
-			}
-		}
-		if(has_proc == 0) {
-			panic("all app are over!\n");
-		}*/
-		p = fetch_task();
-		if (p == NULL) {
-			panic("all app are over!\n");
-		}
-		tracef("swtich to proc %d", p - pool);
-		p->state = RUNNING;
-		current_proc = p;
-		swtch(&idle.context, &p->context);
-	}
+    struct proc *p;
+    for (;;) {
+		while(fetch_task() != 0); //
+        struct proc *next_proc = 0; 
+        for (p = pool; p < &pool[NPROC]; p++) {
+            if (p->state == RUNNABLE) {
+                if (next_proc == 0 || p->stride < next_proc->stride) {
+                    next_proc = p;
+                }
+            }
+        }
+        if (next_proc != 0) {
+            p = next_proc; 
+            if (p->start_time == 0) {
+                p->start_time = get_cycle();
+            }
+            p->stride += p->pass;
+            p->state = RUNNING;
+            current_proc = p;
+            swtch(&idle.context, &p->context);
+        }
+    }
 }
 
 // Switch to scheduler.  Must hold only p->lock
@@ -335,4 +341,26 @@ int fdalloc(struct file *f)
 		}
 	}
 	return -1;
+}
+
+int spawn(char *name) {
+    int pid = fork();
+    if (pid < 0) return -1;
+    struct proc *child = 0;
+    for(struct proc *p = pool; p < &pool[NPROC]; p++) {
+        if(p->pid == pid) { child = p; break; }
+    }
+    if (child == 0) return -1;
+	struct proc *original_proc = current_proc;
+    current_proc = child;
+    // Create a valid, empty argument array to prevent Null Pointer traps
+    char *spawn_argv[] = {name, 0};
+    int ret = exec(name, spawn_argv); 
+    
+    current_proc = original_proc;
+    if (ret < 0) {
+        freeproc(child);
+        return -1;
+    }
+    return pid;
 }
