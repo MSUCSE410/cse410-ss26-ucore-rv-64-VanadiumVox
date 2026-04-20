@@ -114,7 +114,8 @@ struct inode *ialloc(uint dev, short type)
 		if (dip->type == 0) { // a free inode
 			memset(dip, 0, sizeof(*dip));
 			dip->type = type;
-			dip->nlink = 1; // [Project 4] Initialize link count
+			/////////////////////////////////////////////////////
+			dip->nlink = 1; // Initialize the link count to 1 when new file is created
 			bwrite(bp);
 			brelse(bp);
 			return iget(dev, inum);
@@ -138,7 +139,8 @@ void iupdate(struct inode *ip)
 	dip->type = ip->type;
 	dip->size = ip->size;
 	// LAB4: you may need to update link count here
-	dip->nlink = ip->nlink; // [Project 4] Sync link count to disk
+	////////////////////////////////////////////////////////
+	dip->nlink = ip->nlink; // We're now syncicng the link count from RAM to disk 
 	memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
 	bwrite(bp);
 	brelse(bp);
@@ -191,7 +193,9 @@ void ivalid(struct inode *ip)
 		dip = (struct dinode *)bp->data + ip->inum % IPB;
 		ip->type = dip->type;
 		ip->size = dip->size;
-		ip->nlink = dip->nlink; // [Project 4] Sync link count from disk
+		/////////////////////////////////////////////////
+		ip->nlink = dip->nlink; // We're now syncing the link count from the disk into
+		// RAM when opening any file
 		// LAB4: You may need to get lint count here
 		memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
 		brelse(bp);
@@ -211,6 +215,9 @@ void ivalid(struct inode *ip)
 void iput(struct inode *ip)
 {
 	// LAB4: Unmark the condition and change link count variable name (nlink) if needed
+	/////////////////////////////////////////////////////////
+	//If this is the last reference and there are no hard links left, 
+	// then physically truncate and delete the file data
 	if (ip->ref == 1 && ip->valid && ip->nlink == 0) {
 		// inode has no links and no other references: truncate and free.
 		itrunc(ip);

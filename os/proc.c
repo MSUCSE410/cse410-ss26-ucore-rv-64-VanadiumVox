@@ -127,6 +127,9 @@ void scheduler(void)
 {
     struct proc *p;
     for (;;) {
+		////////////////////////////////////////////////
+		// Drains the queue. prevents overflow panics by emptying the FIFO 
+		// queue so the stride scheduler can run smoothly 
 		while(fetch_task() != 0); //
         struct proc *next_proc = 0; 
         for (p = pool; p < &pool[NPROC]; p++) {
@@ -353,7 +356,8 @@ int spawn(char *name) {
     if (child == 0) return -1;
 	struct proc *original_proc = current_proc;
     current_proc = child;
-    // Create a valid, empty argument array to prevent Null Pointer traps
+	//////////////////////////////////////////////////////
+    // Create a valid empty argument array to get rid of null-pointer traps
     char *spawn_argv[] = {name, 0};
     int ret = exec(name, spawn_argv); 
     

@@ -45,14 +45,17 @@ struct superblock {
 // On-disk inode structure
 struct dinode {
 	short type; // File type
-	short nlink; // [Project 4] Track number of hard links
+	////////////////////////////////////////////////
+	short nlink; // Tracks number of hard links to the file. 
     short pad[2]; // Reduced from 3 to 2 to keep sizeof(dinode) unchanged
+	// This is for physical disk aligning
 	// LAB4: you can reduce size of pad array and add link count below,
 	//       or you can just regard a pad as link count.
 	//       But keep in mind that you'd better keep sizeof(dinode) unchanged
 	uint size; // Size of file (bytes)
 	uint addrs[NDIRECT + 1]; // Data block addresses
 };
+
 
 // Inodes per block.
 #define IPB (BSIZE / sizeof(struct dinode))

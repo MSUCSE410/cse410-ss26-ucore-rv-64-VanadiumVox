@@ -9,6 +9,8 @@
 #include "fs.h"
 #include "file.h"
 
+///////////////////////////////////////////////////
+// Custom stat structure, padding bytes must be zeroed out to prevent test panics
 typedef struct {
     uint64 dev;
     uint64 ino;
@@ -297,6 +299,9 @@ uint64 sys_setpriority(long long prio) {
     return prio;
 }
 
+///////////////////////////////////////////////////////////
+// Increments the target file's nlink and then manually injects a new name
+// into the root directory. 
 uint64 sys_linkat(int olddirfd, uint64 oldpath_va, int newdirfd, uint64 newpath_va, uint64 flags) {
     char oldpath[200], newpath[200];
     struct proc *p = curr_proc();
@@ -325,6 +330,9 @@ uint64 sys_linkat(int olddirfd, uint64 oldpath_va, int newdirfd, uint64 newpath_
     return 0;
 }
 
+////////////////////////////////////////////////////////
+//Finds the exact byte offset of target file, overwrites it with a blank struct(writei)
+// and decrements the nlink count. 
 uint64 sys_unlinkat(int dirfd, uint64 path_va, uint64 flags) {
     char path[200];
     struct proc *p = curr_proc();
@@ -356,6 +364,8 @@ uint64 sys_unlinkat(int dirfd, uint64 path_va, uint64 flags) {
     return 0;
 }
 
+///////////////////////////////////////////////////////
+//Maps the interval T_FILE type (2) to the linux hex format (0x100000) as expected
 uint64 sys_fstat(int fd, uint64 stat_va) {
     struct proc *p = curr_proc();
     struct file *f = p->files[fd]; 
@@ -438,7 +448,7 @@ void syscall()
 		break;
 	case SYS_unlinkat:
 	    ret = sys_unlinkat(args[0],args[1],args[2]);
-		break;
+		break; // Added a break here since it was missing
 	case SYS_spawn:
 		ret = sys_spawn(args[0]);
 		break;
