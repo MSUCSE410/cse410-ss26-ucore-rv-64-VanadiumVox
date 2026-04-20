@@ -110,6 +110,7 @@ void scheduler(void)
 {
     struct proc *p;
     for (;;) {
+		while(fetch_task() != 0);
         struct proc *next_proc = 0; // Will hold the process with the lowest stride
 ///////////////////////////////////////////////////////////////////
 // Replaced the old logic with the stride algorithm 
