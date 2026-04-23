@@ -66,6 +66,18 @@ struct proc {
 	// LAB5: (1) Define your variables for deadlock detect here.
 	//			 You may need a flag to record if detection enabled,
 	//       and some arrays for detection algorithm.
+////////////////////////////////////////////////////////////////////
+	// Added a flag to act as a killswitch so the heavy banker's algorithm
+	// only runcs when a program explicitly asks for it
+    int deadlock_detect_enabled;
+	// Also added banker's matrices for both Muxes, and semaphores. This is 
+	// used to trach the available resources, and what the thread is waiting for  
+	int mut_available[LOCK_POOL_SIZE];
+    int mut_allocation[NTHREAD][LOCK_POOL_SIZE];
+    int mut_request[NTHREAD][LOCK_POOL_SIZE];
+    int sem_available[LOCK_POOL_SIZE];
+    int sem_allocation[NTHREAD][LOCK_POOL_SIZE];
+    int sem_request[NTHREAD][LOCK_POOL_SIZE];
 };
 
 int cpuid();

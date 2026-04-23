@@ -143,6 +143,20 @@ found:
 	p->next_semaphore_id = 0;
 	p->next_condvar_id = 0;
 	// LAB5: (1) you may initialize your new proc variables here
+	p->deadlock_detect_enabled = 0; 
+	// reset the kill switch for next program
+	memset(p->mut_available, 0, sizeof(p->mut_available));
+	// Clears the mutex "available" matrix
+	memset(p->mut_allocation, 0, sizeof(p->mut_allocation));
+	// Clears the mutex "allocation" matrix
+	memset(p->mut_request, 0, sizeof(p->mut_request));
+	// Clears the mutex "request" matrix
+	memset(p->sem_available, 0, sizeof(p->sem_available));
+	// Clears the semaphore "available" matrix
+	memset(p->sem_allocation, 0, sizeof(p->sem_allocation));
+	// Clears the semaphore "allocation" matrix
+	memset(p->sem_request, 0, sizeof(p->sem_request));
+	// Clears the semaphore "request" matrix
 	return p;
 }
 

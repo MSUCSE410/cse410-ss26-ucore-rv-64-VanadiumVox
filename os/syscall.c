@@ -6,6 +6,10 @@
 #include "syscall_ids.h"
 #include "timer.h"
 #include "trap.h"
+// Added a forward declaration for the banker's algorithm function
+// Because otherwise the mutex and semaphore functions would throw 
+// implicit declaration warnings
+int deadlock_detect(const int available[LOCK_POOL_SIZE], const int allocation[NTHREAD][LOCK_POOL_SIZE], const int request[NTHREAD][LOCK_POOL_SIZE]);
 
 uint64 console_write(uint64 va, uint64 len)
 {
@@ -260,30 +264,62 @@ int sys_mutex_create(int blocking)
 	// LAB5: (4-1) You may want to maintain some variables for detect here
 	int mutex_id = m - curr_proc()->mutex_pool;
 	debugf("create mutex %d", mutex_id);
+	////////////////////////////////////////////////////////////////
+	// Whenever a lock is created, we have to register its available capacity
+	// into the banker's "available" matrix. So the algorithm knows it exists
+    curr_proc()->mut_available[mutex_id] = 1;
 	return mutex_id;
 }
 
 int sys_mutex_lock(int mutex_id)
 {
-	if (mutex_id < 0 || mutex_id >= curr_proc()->next_mutex_id) {
-		errorf("Unexpected mutex id %d", mutex_id);
-		return -1;
-	}
-	// LAB5: (4-1) You may want to maintain some variables for detect
-	//       or call your detect algorithm here
-	mutex_lock(&curr_proc()->mutex_pool[mutex_id]);
-	return 0;
+    if (mutex_id < 0 || mutex_id >= curr_proc()->next_mutex_id) {
+        errorf("Unexpected mutex id %d", mutex_id);
+        return -1;
+    }
+
+    struct proc *p = curr_proc();
+    int tid = curr_thread() - p->threads; 
+    
+    p->mut_request[tid][mutex_id]++;
+    /////////////////////////////////////////////////////////////////////
+    // I replaced this entire function to intercept the deadlocks before the system freezes.
+	// We're registering the thread's request in the matrix and run the algorithm. 
+	// If a deadlock is detected, we log the event, revert the request, and return a specific error code 
+    if (p->deadlock_detect_enabled && deadlock_detect(p->mut_available, p->mut_allocation, p->mut_request)) {
+        errorf("detect deadlock on locking mutex %d!", mutex_id);
+        p->mut_request[tid][mutex_id]--; // Reverting the request
+		return -0xDEAD; // Returns the specific code expected by tests    
+		}
+    
+    mutex_lock(&p->mutex_pool[mutex_id]);
+    
+    p->mut_request[tid][mutex_id]--;
+    p->mut_allocation[tid][mutex_id]++;
+    p->mut_available[mutex_id]--;
+    return 0;
 }
 
 int sys_mutex_unlock(int mutex_id)
 {
-	if (mutex_id < 0 || mutex_id >= curr_proc()->next_mutex_id) {
-		errorf("Unexpected mutex id %d", mutex_id);
-		return -1;
-	}
-	// LAB5: (4-1) You may want to maintain some variables for detect here
-	mutex_unlock(&curr_proc()->mutex_pool[mutex_id]);
-	return 0;
+    if (mutex_id < 0 || mutex_id >= curr_proc()->next_mutex_id) {
+        errorf("Unexpected mutex id %d", mutex_id);
+        return -1;
+    }
+
+    struct proc *p = curr_proc();
+    int tid = curr_thread() - p->threads;
+    ///////////////////////////////////////////////////////////////////
+    // This functions was replaced to properly decrement the thread's allocation matrix
+	// and increment available matrix. Also added a bounds check to make sure that the
+	// math never goes into negative numbers, which breaks the algorithm.
+    if (p->mut_allocation[tid][mutex_id] > 0) {
+        p->mut_allocation[tid][mutex_id]--;
+    }
+    p->mut_available[mutex_id]++;
+    
+    mutex_unlock(&p->mutex_pool[mutex_id]);
+    return 0;
 }
 
 int sys_semaphore_create(int res_count)
@@ -296,32 +332,67 @@ int sys_semaphore_create(int res_count)
 	// LAB5: (4-2) You may want to maintain some variables for detect here
 	int sem_id = s - curr_proc()->semaphore_pool;
 	debugf("create semaphore %d", sem_id);
+	//////////////////////////////////////////////////////////////
+	// This is the initialization for bankers algorithm. When a new semaphore is 
+	// made, we must register its resource count into the avilable matrix. 
+	// If we skip this, the algorithm will assume the semaphore has 0 resources, 
+	// causing a deadlock panic whenever a thread tries to acquire it.
+	curr_proc()->sem_available[sem_id] = res_count;
 	return sem_id;
-}
-
-int sys_semaphore_up(int semaphore_id)
-{
-	if (semaphore_id < 0 ||
-	    semaphore_id >= curr_proc()->next_semaphore_id) {
-		errorf("Unexpected semaphore id %d", semaphore_id);
-		return -1;
-	}
-	// LAB5: (4-2) You may want to maintain some variables for detect here
-	semaphore_up(&curr_proc()->semaphore_pool[semaphore_id]);
-	return 0;
 }
 
 int sys_semaphore_down(int semaphore_id)
 {
-	if (semaphore_id < 0 ||
-	    semaphore_id >= curr_proc()->next_semaphore_id) {
-		errorf("Unexpected semaphore id %d", semaphore_id);
-		return -1;
-	}
-	// LAB5: (4-2) You may want to maintain some variables for detect
-	//       or call your detect algorithm here
-	semaphore_down(&curr_proc()->semaphore_pool[semaphore_id]);
-	return 0;
+    if (semaphore_id < 0 || semaphore_id >= curr_proc()->next_semaphore_id) {
+        errorf("Unexpected semaphore id %d", semaphore_id);
+        return -1;
+    }
+
+    struct proc *p = curr_proc();
+    int tid = curr_thread() - p->threads;
+    
+	//This registers the intent, which, before checking for a deadlock, we must
+	// recorcd that the thread wants this semaphore
+    p->sem_request[tid][semaphore_id]++;
+    
+    // This is the interception. We run banker's algorithm using the updated request matrix
+	// If it detects a deadlock, we step in and stop it.
+    if (p->deadlock_detect_enabled && deadlock_detect(p->sem_available, p->sem_allocation, p->sem_request)) {
+        errorf("detect deadlock on down semaphore %d!", semaphore_id);
+
+		// This is the reversal, since we're denying the lock to prevent deadlock,
+		// we have to erase the request from the matrix to keep it accurate
+        p->sem_request[tid][semaphore_id]--; 
+		return -0xDEAD; // Return the specific easter-egg code expected by the tests    
+		}
+    
+    semaphore_down(&p->semaphore_pool[semaphore_id]);
+    
+    p->sem_request[tid][semaphore_id]--;
+    p->sem_allocation[tid][semaphore_id]++;
+    p->sem_available[semaphore_id]--;
+    return 0;
+}
+
+int sys_semaphore_up(int semaphore_id)
+{
+    if (semaphore_id < 0 || semaphore_id >= curr_proc()->next_semaphore_id) {
+        errorf("Unexpected semaphore id %d", semaphore_id);
+        return -1;
+    }
+
+    struct proc *p = curr_proc();
+    int tid = curr_thread() - p->threads;
+    
+    // This is the protection check, if a thread is behaving badly, and tries to release
+	// a lock it doesn't own, decrementing the allocation matrix would make it negative. 
+    if (p->sem_allocation[tid][semaphore_id] > 0) {
+        p->sem_allocation[tid][semaphore_id]--;
+    }
+    p->sem_available[semaphore_id]++;
+    // Execute the actual release here
+    semaphore_up(&p->semaphore_pool[semaphore_id]);
+    return 0;
 }
 
 int sys_condvar_create()
@@ -362,6 +433,57 @@ int sys_condvar_wait(int cond_id, int mutex_id)
 }
 
 // LAB5: (2) you may need to define function enable_deadlock_detect here
+//////////////////////////////////////////////////////////////
+// This system call is allowing a process to toggle its own deadlock 
+// detection flag. It simply grabs the current process's PCB and flips the flag
+uint64 sys_enable_deadlock_detect(int is_enable) {
+    struct proc *p = curr_proc();
+    p->deadlock_detect_enabled = is_enable;
+    return 0;
+}
+// The custom implementation of Banker's algorithm for deadlock detection
+// which simulates granting the requested resources. Added an is_empty check below
+// where a thread is only finished if it holds 0 allocations and pending requests.
+int deadlock_detect(const int available[LOCK_POOL_SIZE],
+                    const int allocation[NTHREAD][LOCK_POOL_SIZE],
+                    const int request[NTHREAD][LOCK_POOL_SIZE]) {
+    int work[LOCK_POOL_SIZE];
+    int finish[NTHREAD];
+    
+    for (int i = 0; i < LOCK_POOL_SIZE; i++) work[i] = available[i];
+    
+    // fixed: A thread is only "empty" if it holds no allocations AND has 0 requests
+    for (int i = 0; i < NTHREAD; i++) {
+        int is_empty = 1; // Is empty check
+        for (int j = 0; j < LOCK_POOL_SIZE; j++) {
+            if (allocation[i][j] > 0 || request[i][j] > 0) { is_empty = 0; break; }
+        }
+        finish[i] = is_empty;
+    }
+    
+    while (1) {
+        int found = 0;
+        for (int i = 0; i < NTHREAD; i++) {
+            if (!finish[i]) {
+                int can_grant = 1;
+                for (int j = 0; j < LOCK_POOL_SIZE; j++) {
+                    if (request[i][j] > work[j]) { can_grant = 0; break; }
+                }
+                if (can_grant) {
+                    for (int j = 0; j < LOCK_POOL_SIZE; j++) work[j] += allocation[i][j];
+                    finish[i] = 1;
+                    found = 1;
+                }
+            }
+        }
+        if (!found) break;
+    }
+    
+    for (int i = 0; i < NTHREAD; i++) {
+        if (!finish[i]) return 1; // Deadlock detected!
+    }
+    return 0; // System is safe
+}
 
 extern char trap_page[];
 
@@ -454,6 +576,10 @@ void syscall()
 		ret = sys_condvar_wait(args[0], args[1]);
 		break;
 	// LAB5: (2) you may need to add case SYS_enable_deadlock_detect here
+	 /////////////////////////////////////////////////////////////////////
+	case SYS_enable_deadlock_detect:
+        ret = sys_enable_deadlock_detect(args[0]);
+        break;
 	default:
 		ret = -1;
 		errorf("unknown syscall %d", id);
